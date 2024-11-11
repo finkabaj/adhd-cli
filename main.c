@@ -1,3 +1,4 @@
+#include <libgen.h>
 #include <linux/limits.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -20,8 +21,24 @@ const char *k_etchosts_filename = "/etc/hosts";
 const char *k_temphosts_filename = "/etc/adhd-hosts";
 
 FILE *etc_hosts = NULL;
-char cwd[PATH_MAX];
-char *cli_name = NULL;
+char binary_path[PATH_MAX];
+char *binary_name = NULL;
+
+void get_binary_path(void)
+{
+    ssize_t len = readlink("/proc/self/exe", binary_path, sizeof(binary_path) - 1);
+    if (len == -1)
+    {
+        perror("Failed to get binary path");
+        exit(1);
+    }
+    binary_path[len] = '\0';
+
+    char path_copy[PATH_MAX];
+    strncpy(path_copy, binary_path, sizeof(path_copy) - 1);
+
+    binary_name = basename(binary_path);
+}
 
 long parse_time_with_metric(const char *v)
 {
@@ -301,7 +318,7 @@ char *get_real_home()
     return getenv("HOME");
 }
 
-void setup_sudo_rules(const char *cwd, const char *cli_name, const char *real_user)
+void setup_sudo_rules(const char *real_user)
 {
     char sudoers_path[512];
     snprintf(sudoers_path, sizeof(sudoers_path), "/etc/sudoers.d/adhd-cli");
@@ -314,9 +331,9 @@ void setup_sudo_rules(const char *cwd, const char *cli_name, const char *real_us
     }
 
     fprintf(sudoers_file,
-            "%s ALL=(root) NOPASSWD: %s/%s -c\n"
-            "%s ALL=(root) NOPASSWD: %s/%s -uc\n",
-            real_user, cwd, cli_name, real_user, cwd, cli_name);
+            "%s ALL=(root) NOPASSWD: %s -c\n"
+            "%s ALL=(root) NOPASSWD: %s -uc\n",
+            real_user, binary_path, real_user, binary_path);
 
     fclose(sudoers_file);
 
@@ -329,7 +346,7 @@ void create_systemd_service(long interval_time, long break_time, int start_hour,
     char *real_home = get_real_home();
     char *real_user = get_real_username();
 
-    setup_sudo_rules(cwd, cli_name, real_user);
+    setup_sudo_rules(real_user);
 
     char dir_path[512];
     snprintf(dir_path, sizeof(dir_path), "%s/.config/systemd/user", real_home);
@@ -351,12 +368,12 @@ void create_systemd_service(long interval_time, long break_time, int start_hour,
             "Description=ADHD Domain Blocker Service\n\n"
             "[Service]\n"
             "Type=simple\n"
-            "ExecStart=/bin/bash -c 'while true; do sudo %s/%s -uc; sleep %ld; "
-            "sudo %s/%s -c; sleep %ld; done'\n"
+            "ExecStart=/bin/bash -c 'while true; do sudo %s -uc; sleep %ld; "
+            "sudo %s -c; sleep %ld; done'\n"
             "Restart=on-failure\n\n"
             "[Install]\n"
             "WantedBy=default.target\n",
-            cwd, cli_name, interval_time, cwd, cli_name, break_time);
+            binary_path, interval_time, binary_path, break_time);
 
     fclose(service_file);
 
@@ -473,9 +490,9 @@ void schedule_cmd(char **argv)
              "echo \"XDG_RUNTIME_DIR=/run/user/$(id -u) "
              "systemctl --user stop adhd-blocker.timer && "
              "systemctl --user stop adhd-blocker.service && "
-             "sudo %s/%s -c\" | at %02d:%02d"
+             "sudo %s -c\" | at %02d:%02d"
              "' 2>/dev/null",
-             real_user, real_user, cwd, cli_name, end_hour, end_min);
+             real_user, real_user, binary_path, end_hour, end_min);
     system(stop_cmd);
 
     printf("Domain blocking scheduled:\n");
@@ -492,7 +509,7 @@ void help_cmd()
     printf("adhd-cli - A tool to manage domain blocking for better focus\n\n");
 
     printf("USAGE:\n");
-    printf("  %s <command> [arguments]\n\n", cli_name);
+    printf("  %s <command> [arguments]\n\n", binary_name);
 
     printf("COMMANDS:\n");
     printf("  -h,  --help       Display this help message\n");
@@ -534,13 +551,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!getcwd(cwd, sizeof(cwd)))
-    {
-        perror("getcwd error");
-        return 1;
-    }
-    cli_name = argv[0];
-    cli_name = strtok(cli_name, "./");
+    get_binary_path();
+
+    printf("%s\n", binary_path);
+    printf("%s\n", binary_name);
 
     if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
     {
