@@ -395,7 +395,12 @@ void create_systemd_service(long interval_time, long break_time, int start_hour,
     if ((local_time->tm_hour > start_hour || (local_time->tm_hour == start_hour && local_time->tm_min >= start_min)) &&
         (local_time->tm_hour < end_hour || (local_time->tm_hour == end_hour && local_time->tm_min < end_min)))
     {
+        uncomment_cmd();
         enable_service = " && systemctl --user start adhd-blocker.service";
+    }
+    else
+    {
+        comment_cmd();
     }
 
     char systemd_cmd[1024];
