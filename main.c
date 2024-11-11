@@ -553,9 +553,6 @@ int main(int argc, char **argv)
 
     get_binary_path();
 
-    printf("%s\n", binary_path);
-    printf("%s\n", binary_name);
-
     if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
     {
         if (argc != 2)
